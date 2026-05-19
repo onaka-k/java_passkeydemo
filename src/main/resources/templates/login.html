@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ja" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ログイン | Passkey Demo</title>
+    <style>
+        body { font-family: "Segoe UI", sans-serif; margin: 0; background: linear-gradient(160deg, #f7fbff, #eef7f1); }
+        .wrap { max-width: 920px; margin: 40px auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+        .card { background: #fff; border-radius: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.08); padding: 22px; }
+        h1, h2 { margin-top: 0; }
+        label { display: block; margin: 10px 0 6px; font-weight: 600; }
+        input { width: 100%; padding: 10px; border: 1px solid #c5d2dc; border-radius: 8px; box-sizing: border-box; }
+        button { margin-top: 14px; padding: 11px 14px; border: 0; border-radius: 8px; background: #176f4b; color: #fff; cursor: pointer; }
+        .sub { background: #235ea8; }
+        .msg { margin-top: 12px; color: #9b1c1c; min-height: 20px; }
+        .ok { color: #12633f; }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <div class="card">
+        <h1>ID/PASS ログイン</h1>
+        <form method="post" action="/login">
+            <label for="username">ID</label>
+            <input id="username" name="username" autocomplete="username" required>
+            <label for="password">PASS</label>
+            <input id="password" name="password" type="password" autocomplete="current-password" required>
+            <button type="submit">ログイン</button>
+        </form>
+        <div class="msg" th:if="${param.error}">ID または PASS が正しくありません。</div>
+        <div class="msg ok" th:if="${param.logout}">ログアウトしました。</div>
+    </div>
+
+    <div class="card">
+        <h2>ID/Passkey ログイン</h2>
+        <label for="passkeyUsername">ID</label>
+        <input id="passkeyUsername" autocomplete="username webauthn" required>
+        <button class="sub" id="passkeyLoginBtn" type="button">Passkeyでログイン</button>
+        <div id="passkeyMsg" class="msg"></div>
+    </div>
+</div>
+
+<script>
+    const msg = document.getElementById('passkeyMsg');
+
+    const b64ToBuf = (base64url) => {
+        const pad = '='.repeat((4 - (base64url.length % 4)) % 4);
+        const base64 = (base64url + pad).replace(/-/g, '+').replace(/_/g, '/');
+        const raw = atob(base64);
+        return Uint8Array.from(raw, c => c.charCodeAt(0));
+    };
+
+    const bufToB64 = (buf) => {
+        const binary = String.fromCharCode(...new Uint8Array(buf));
+        return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    };
+
+    const toRequestOptions = (json) => {
+        return {
+            ...json,
+            challenge: b64ToBuf(json.challenge),
+            allowCredentials: (json.allowCredentials || []).map(c => ({
+                ...c,
+                id: b64ToBuf(c.id)
+            }))
+        };
+    };
+
+    document.getElementById('passkeyLoginBtn').addEventListener('click', async () => {
+        msg.textContent = '';
+        const username = document.getElementById('passkeyUsername').value.trim();
+        if (!username) {
+            msg.textContent = 'IDを入力してください。';
+            return;
+        }
+
+        try {
+            const optionsRes = await fetch('/login/passkey/options', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({username})
+            });
+            const optionsData = await optionsRes.json();
+            if (!optionsRes.ok) {
+                msg.textContent = optionsData.message || 'オプション取得に失敗しました。';
+                return;
+            }
+
+            const assertion = await navigator.credentials.get({
+                publicKey: toRequestOptions(optionsData)
+            });
+
+            const payload = {
+                username,
+                credentialId: bufToB64(assertion.rawId),
+                clientDataJSON: bufToB64(assertion.response.clientDataJSON),
+                authenticatorData: bufToB64(assertion.response.authenticatorData),
+                signature: bufToB64(assertion.response.signature),
+                userHandle: assertion.response.userHandle ? bufToB64(assertion.response.userHandle) : null
+            };
+
+            const loginRes = await fetch('/login/passkey', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            const loginData = await loginRes.json();
+            if (!loginRes.ok) {
+                msg.textContent = loginData.message || 'Passkeyログインに失敗しました。';
+                return;
+            }
+
+            location.href = loginData.redirect || '/passkeys';
+        } catch (e) {
+            msg.textContent = 'Passkeyログイン処理でエラーが発生しました。';
+        }
+    });
+</script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+import java.net.URI
+
+rootProject.name = 'java_passkeydemo'
+
+def parseProxy = { String value ->
+	if (!value) {
+		return null
+	}
+	try {
+		return new URI(value)
+	} catch (Exception ignored) {
+		return null
+	}
+}
+
+def applyProxy = { String scheme, URI proxyUri ->
+	if (proxyUri == null || proxyUri.host == null) {
+		return
+	}
+	System.setProperty("${scheme}.proxyHost", proxyUri.host)
+	if (proxyUri.port > 0) {
+		System.setProperty("${scheme}.proxyPort", String.valueOf(proxyUri.port))
+	}
+
+	if (proxyUri.userInfo) {
+		def tokens = proxyUri.userInfo.split(':', 2)
+		if (tokens.length > 0 && tokens[0]) {
+			System.setProperty("${scheme}.proxyUser", tokens[0])
+		}
+		if (tokens.length > 1) {
+			System.setProperty("${scheme}.proxyPassword", tokens[1])
+		}
+	}
+}
+
+def httpEnv = System.getenv('HTTP_PROXY') ?: System.getenv('http_proxy')
+def httpsEnv = System.getenv('HTTPS_PROXY') ?: System.getenv('https_proxy')
+def noProxyEnv = System.getenv('NO_PROXY') ?: System.getenv('no_proxy')
+
+def httpProxy = parseProxy(httpEnv)
+def httpsProxy = parseProxy(httpsEnv)
+
+applyProxy('http', httpProxy)
+applyProxy('https', httpsProxy ?: httpProxy)
+
+if (noProxyEnv) {
+	def hosts = noProxyEnv
+			.split(',')
+			.collect { it.trim() }
+			.findAll { !it.isEmpty() }
+			.collect { it.replace('.', '\\.').replace('*', '.*') }
+			.join('|')
+	if (!hosts.isEmpty()) {
+		System.setProperty('http.nonProxyHosts', hosts)
+	}
+}
