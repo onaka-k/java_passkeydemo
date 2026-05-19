@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ja" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Passkey変更 | Passkey Demo</title>
+    <style>
+        body { font-family: "Segoe UI", sans-serif; margin: 0; background: #f4f8fb; }
+        .container { max-width: 980px; margin: 28px auto; background: #fff; border-radius: 14px; padding: 24px; box-shadow: 0 10px 26px rgba(0,0,0,.06); }
+        .top { display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap; }
+        .count { font-weight: 700; color: #235ea8; }
+        table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        th, td { border-bottom: 1px solid #e1e8ef; text-align: left; padding: 10px; }
+        button { border: 0; border-radius: 8px; padding: 9px 12px; cursor: pointer; }
+        .add { background: #176f4b; color: #fff; }
+        .delete { background: #9b1c1c; color: #fff; }
+        .msg { margin-top: 14px; min-height: 20px; color: #9b1c1c; }
+        .ok { color: #12633f; }
+        .logout { background: #555; color: #fff; text-decoration: none; padding: 9px 12px; border-radius: 8px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="top">
+        <div>
+            <h1>Passkey変更画面</h1>
+            <div><strong th:text="${displayName}"></strong> (<span th:text="${username}"></span>)</div>
+            <div class="count">登録数 <span id="countVal" th:text="${count}"></span>/<span th:text="${max}"></span></div>
+        </div>
+        <div>
+            <button class="add" id="addBtn" th:disabled="${count >= max}">Passkeyを追加</button>
+            <a class="logout" href="/logout">ログアウト</a>
+        </div>
+    </div>
+
+    <table>
+        <thead>
+        <tr>
+            <th>ID</th>
+            <th>ラベル</th>
+            <th>作成日時</th>
+            <th>更新日時</th>
+            <th>操作</th>
+        </tr>
+        </thead>
+        <tbody id="rows">
+        <tr th:each="k : ${passkeys}">
+            <td th:text="${k.id}"></td>
+            <td th:text="${k.label}"></td>
+            <td th:text="${k.createdAt}"></td>
+            <td th:text="${k.updatedAt}"></td>
+            <td><button class="delete" th:attr="data-id=${k.id}">削除</button></td>
+        </tr>
+        <tr th:if="${#lists.isEmpty(passkeys)}"><td colspan="5">登録済みPasskeyはありません</td></tr>
+        </tbody>
+    </table>
+    <div id="msg" class="msg"></div>
+</div>
+
+<script>
+    const msg = document.getElementById('msg');
+    const addBtn = document.getElementById('addBtn');
+    const countVal = document.getElementById('countVal');
+
+    const b64ToBuf = (base64url) => {
+        const pad = '='.repeat((4 - (base64url.length % 4)) % 4);
+        const base64 = (base64url + pad).replace(/-/g, '+').replace(/_/g, '/');
+        const raw = atob(base64);
+        return Uint8Array.from(raw, c => c.charCodeAt(0));
+    };
+
+    const bufToB64 = (buf) => {
+        const binary = String.fromCharCode(...new Uint8Array(buf));
+        return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    };
+
+    const creationOptions = (json) => ({
+        ...json,
+        challenge: b64ToBuf(json.challenge),
+        user: {
+            ...json.user,
+            id: b64ToBuf(json.user.id)
+        },
+        excludeCredentials: (json.excludeCredentials || []).map(c => ({
+            ...c,
+            id: b64ToBuf(c.id)
+        }))
+    });
+
+    const reloadList = async () => {
+        const res = await fetch('/passkeys/list');
+        const data = await res.json();
+        const rows = document.getElementById('rows');
+        if (!Array.isArray(data) || data.length === 0) {
+            rows.innerHTML = '<tr><td colspan="5">登録済みPasskeyはありません</td></tr>';
+            countVal.textContent = '0';
+            addBtn.disabled = false;
+            return;
+        }
+
+        rows.innerHTML = data.map(k => `
+            <tr>
+                <td>${k.id}</td>
+                <td>${k.label || 'Passkey'}</td>
+                <td>${k.createdAt}</td>
+                <td>${k.updatedAt}</td>
+                <td><button class="delete" data-id="${k.id}">削除</button></td>
+            </tr>
+        `).join('');
+
+        countVal.textContent = String(data.length);
+        addBtn.disabled = data.length >= 5;
+    };
+
+    addBtn.addEventListener('click', async () => {
+        msg.textContent = '';
+        try {
+            const optionsRes = await fetch('/passkeys/register/options');
+            const optionsJson = await optionsRes.json();
+            if (!optionsRes.ok) {
+                msg.textContent = optionsJson.message || '登録オプション取得に失敗しました。';
+                return;
+            }
+
+            const cred = await navigator.credentials.create({
+                publicKey: creationOptions(optionsJson)
+            });
+
+            const label = prompt('このPasskeyのラベル名（任意）', 'My device');
+            const payload = {
+                credentialId: bufToB64(cred.rawId),
+                clientDataJSON: bufToB64(cred.response.clientDataJSON),
+                transports: cred.response.getTransports ? JSON.stringify(cred.response.getTransports()) : null,
+                userHandle: null,
+                label: label || 'Passkey',
+                payloadJson: JSON.stringify(cred)
+            };
+
+            const saveRes = await fetch('/passkeys/register/finish', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            const saveData = await saveRes.json();
+            if (!saveRes.ok) {
+                msg.textContent = saveData.message || '登録に失敗しました。';
+                return;
+            }
+
+            msg.textContent = saveData.message;
+            msg.classList.add('ok');
+            await reloadList();
+        } catch (e) {
+            msg.textContent = 'Passkey登録処理でエラーが発生しました。';
+            msg.classList.remove('ok');
+        }
+    });
+
+    document.getElementById('rows').addEventListener('click', async (event) => {
+        const button = event.target.closest('.delete');
+        if (!button) {
+            return;
+        }
+
+        const id = button.getAttribute('data-id');
+        if (!confirm('このPasskeyを削除しますか？')) {
+            return;
+        }
+
+        const res = await fetch(`/passkeys/${id}`, {method: 'DELETE'});
+        if (!res.ok) {
+            msg.textContent = '削除に失敗しました。';
+            msg.classList.remove('ok');
+            return;
+        }
+
+        msg.textContent = '削除しました。';
+        msg.classList.add('ok');
+        await reloadList();
+    });
+</script>
+</body>
+</html>
