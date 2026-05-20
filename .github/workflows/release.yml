@@ -25,6 +25,9 @@ jobs:
       - name: Set up Gradle cache
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
       - name: Build bootJar
         run: ./gradlew clean bootJar
 
