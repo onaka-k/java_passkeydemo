@@ -32,6 +32,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.transaction.annotation.Transactional;
 
 @RestController
 @RequestMapping
@@ -160,6 +161,7 @@ public class PasskeyApiController {
     }
 
     @PostMapping("/login/passkey")
+    @Transactional(readOnly = true)
     public ResponseEntity<?> passkeyLogin(@RequestBody PasskeyLoginRequest request, HttpServletRequest httpRequest, HttpSession session) {
         String expectedChallenge = (String) session.getAttribute(SESSION_LOGIN_CHALLENGE);
         String expectedUsername = (String) session.getAttribute(SESSION_LOGIN_USERNAME);
