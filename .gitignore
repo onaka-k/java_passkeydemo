@@ -3,10 +3,7 @@
 gradle-*/
 gradle-*-bin.zip
 gradle-*-all.zip
-build/*
-!build/libs/
-build/libs/*
-!build/libs/java_passkeydemo-0.0.1-SNAPSHOT.jar
+build/
 !gradle/wrapper/gradle-wrapper.jar
 
 # Runtime data
@@ -33,7 +30,6 @@ Thumbs.db
 
 # Spring Boot artifacts
 *.jar
-!build/libs/java_passkeydemo-0.0.1-SNAPSHOT.jar
 *.war
 *.ear
 
